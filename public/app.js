@@ -34,6 +34,12 @@ export function formatDateTime(iso) {
   return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso));
 }
 
+export function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[character]);
+}
+
 export function toast(message, error = false) {
   let el = document.querySelector('.toast');
   if (!el) {

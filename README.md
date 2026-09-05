@@ -4,7 +4,7 @@ Sistema de organização de filas e chamadas para os atendimentos do Centro de S
 
 ## Funcionalidades
 
-- Emissão digital de senhas sem solicitar nome, CPF ou outros dados pessoais.
+- Emissão digital de senhas com nome opcional, sem solicitar CPF ou outros dados pessoais.
 - Filas separadas para Odontológico, Consultório Médico, Nutricionista, Fisioterapia, Exames Laboratoriais e Enfermaria.
 - Painel do atendente protegido por PIN.
 - Chamada da próxima senha de cada setor.
@@ -18,4 +18,4 @@ Sistema de organização de filas e chamadas para os atendimentos do Centro de S
 - Histórico de atendimentos com exportação em arquivo CSV.
 - Reinicialização das filas e da numeração das senhas.
 
-O sistema registra somente o código da senha, o setor, o horário e o local de atendimento.
+O sistema registra o código da senha, o nome quando informado, o setor, o horário e o local de atendimento.

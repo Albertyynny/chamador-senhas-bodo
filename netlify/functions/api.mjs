@@ -32,6 +32,10 @@ function cleanDesk(value) {
   return String(value || '').trim().slice(0, 30) || 'Atendimento';
 }
 
+function cleanPatientName(value) {
+  return String(value || '').replace(/[\u0000-\u001F\u007F<>"'&]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+
 function ticketCode(service, number) {
   return `${service.prefix}${String(number).padStart(3, '0')}`;
 }
@@ -110,6 +114,7 @@ export default async (req) => {
           code: ticketCode(service, number),
           serviceId: service.id,
           serviceName: service.name,
+          patientName: cleanPatientName(body.patientName),
           createdAt: new Date().toISOString()
         };
         service.queue.push(ticket);
