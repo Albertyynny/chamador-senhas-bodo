@@ -1,0 +1,9 @@
+{
+  "name": "chamador-senhas-netlify",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@netlify/blobs": "11.0.3"
+  }
+}
