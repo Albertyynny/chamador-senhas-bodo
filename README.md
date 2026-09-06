@@ -19,3 +19,11 @@ Sistema de organização de filas e chamadas para os atendimentos do Centro de S
 - Reinicialização das filas e da numeração das senhas.
 
 O sistema registra o código da senha, o nome quando informado, o setor, o horário e o local de atendimento.
+
+## Instalação no celular
+
+Após publicar no Netlify (HTTPS), abra o site e toque em **Instalar app**. Em navegadores compatíveis, o botão abre a instalação. No iPhone/iPad, use o Safari: **Compartilhar → Adicionar à Tela de Início → Adicionar**.
+
+O app abre na página inicial e usa a imagem de `assets/logo.png` nos ícones publicados em `public/assets` (180, 192 e 512 pixels). Ao trocar a logo, gere novamente esses ícones. Um app já instalado pode precisar ser removido e instalado novamente para atualizar o ícone.
+
+O sistema precisa de internet para consultar e alterar filas. O service worker guarda somente a página de aviso de falta de conexão, sem armazenar senhas ou dados de pacientes.
