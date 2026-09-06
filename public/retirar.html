@@ -12,6 +12,7 @@
 <div class="field patient-field"><label for="patientName">Nome da pessoa (opcional)</label><input id="patientName" name="patientName" maxlength="80" autocomplete="name" placeholder="Como você se chama?" aria-describedby="nameHelp"><div id="nameHelp" class="small muted">Você pode deixar em branco e ser chamado somente pela senha.</div></div>
 <div class="field"><label for="service">Setor de atendimento</label><select id="service" name="serviceId" required disabled aria-describedby="serviceStatus"><option value="">Carregando setores...</option></select><div id="serviceStatus" class="small muted" role="status">Buscando os setores disponíveis.</div></div>
 <button class="btn btn-secondary" type="button" id="retry" hidden>Tentar novamente</button>
+<button class="btn btn-secondary" type="button" id="refreshServices" style="margin-top:12px">Atualizar setores</button>
 <button class="btn btn-primary btn-block registration-submit" id="submit" type="submit" disabled>Cadastrar e gerar senha →</button>
 <p class="small muted registration-note">Após gerar sua senha, aguarde a chamada no painel.</p>
 </form></section>
@@ -41,7 +42,11 @@ const submit = document.getElementById('submit');
 const status = document.getElementById('serviceStatus');
 const retry = document.getElementById('retry');
 let submitting = false;
+let sessionId;
+const requestedService = new URLSearchParams(window.location.search).get('setor');
 async function load() {
+  const previousService = service.value;
+  sessionId = null;
   service.disabled = true;
   submit.disabled = true;
   retry.hidden = true;
@@ -49,26 +54,33 @@ async function load() {
   status.textContent = 'Buscando os setores disponíveis.';
   try {
     const state = await getState();
+    if (state.session?.closedAt) throw new Error('Dia encerrado. Aguarde a abertura do atendimento pela recepção.');
+    if (state.today && state.session?.date !== state.today) throw new Error('Aguarde a recepção abrir o atendimento de hoje.');
+    sessionId = state.session?.id;
     service.replaceChildren(new Option('Selecione o setor da consulta', ''));
-    state.services.forEach(item => service.add(new Option(item.name, item.id)));
+    state.services.forEach(item => service.add(new Option(`${item.name} (${item.prefix})`, item.id)));
+    const preferred = previousService || requestedService;
+    if (state.services.some(item => item.id === preferred)) service.value = preferred;
     service.disabled = !state.services.length;
+    submit.disabled = service.disabled || !service.value || submitting;
     status.textContent = state.services.length ? 'Selecione um setor para continuar.' : 'Nenhum setor disponível no momento.';
     retry.hidden = state.services.length > 0;
   } catch (error) {
     service.replaceChildren(new Option('Setores indisponíveis', ''));
-    status.textContent = 'Não foi possível carregar os setores. Tente novamente.';
+    status.textContent = error.message || 'Não foi possível carregar os setores. Tente novamente.';
     retry.hidden = false;
   }
 }
 service.onchange = () => { submit.disabled = !service.value || submitting; };
 retry.onclick = load;
+document.getElementById('refreshServices').onclick = () => { if (!submitting) load(); };
 form.onsubmit = async event => {
   event.preventDefault();
   if (submitting || service.disabled || !form.reportValidity() || !service.value) return;
   submitting = true;
   submit.disabled = true;
   submit.textContent = 'Gerando sua senha...';
-  const payload = {serviceId: service.value, patientName: patientName.value.trim()};
+  const payload = {serviceId: service.value, patientName: patientName.value.trim(), sessionId};
   service.disabled = true;
   patientName.disabled = true;
   try {
@@ -89,11 +101,12 @@ form.onsubmit = async event => {
     if (getPrinterSettings().auto) await printCurrentTicket();
   } catch (error) {
     toast(error.message, true);
+    await load();
   } finally {
     submitting = false;
-    service.disabled = false;
+    service.disabled = !sessionId;
     patientName.disabled = false;
-    submit.disabled = !service.value;
+    submit.disabled = service.disabled || !service.value;
     submit.textContent = 'Cadastrar e gerar senha →';
   }
 };

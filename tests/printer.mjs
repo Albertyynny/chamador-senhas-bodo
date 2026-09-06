@@ -74,17 +74,19 @@ let attempts = 0;
 const messages = [];
 const context = vm.createContext({
   document:{getElementById:get},
-  window:{addEventListener() {}, scrollTo() {}},
+  window:{addEventListener() {}, scrollTo() {},location:{search:'?setor=medical'}},
+  URLSearchParams,
   Option:function() {},
   getPrinterSettings: () => ({configured:true, auto:true, width:58}),
-  getState: async () => ({services:[{id:'medical', name:'Consultório Médico'}]}),
-  postAction: async action => { assert.equal(action, 'take'); issued++; return {ticket}; },
+  getState: async () => ({session:{id:'test-day'},services:[{id:'medical', name:'Consultório Médico',prefix:'M'}]}),
+  postAction: async (action,payload) => { assert.equal(action, 'take'); assert.equal(payload.serviceId,'medical'); assert.equal(payload.sessionId,'test-day'); issued++; return {ticket}; },
   printTicket: async value => { assert.equal(value, ticket); attempts++; if (attempts === 1) throw new Error('Printer unavailable'); },
   toast:message => messages.push(message),
   Date
 });
 vm.runInContext(code, context);
 await new Promise(resolve => setImmediate(resolve));
+assert.equal(get('service').value,'medical','The selected sector must be loaded from the link.');
 get('service').value = 'medical';
 await get('registration').onsubmit({preventDefault() {}});
 assert.equal(issued, 1);
