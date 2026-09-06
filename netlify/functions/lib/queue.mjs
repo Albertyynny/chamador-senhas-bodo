@@ -53,7 +53,9 @@ export function adminState(state, agendaDate = businessDate()) {
   return {...publicState(state), tickets:state.tickets,
     agendaDate, appointments:(state.appointments || []).filter(item => item.date === agendaDate),
     archives:state.archives.map(({key,...archive}) => archive), hasLegacy:state.legacyHistory.length > 0,
-    services:state.services.map(service => ({...service,pinConfigured:!!state.auth?.servicePins?.[service.id]}))};
+    services:state.services.map(service => ({...service,
+      waiting:state.tickets.filter(t => t.serviceId === service.id && t.status === 'aguardando').length,
+      pinConfigured:!!state.auth?.servicePins?.[service.id]}))};
 }
 export function serviceState(state, serviceId) {
   const service = state.services.find(item => item.id === serviceId);

@@ -82,7 +82,7 @@ function render(next) {
   $('dayStatus').textContent = `${dateLabel(state.session.date)} • ${state.session.closedAt ? 'Encerrado' : 'Aberto'}`;
   $('stats').innerHTML = state.services.map(service => `<div class="queue-card"><strong>${service.waiting}</strong><span>${esc(service.name)}</span></div>`).join('');
   const selected = $('service').value;
-  $('service').replaceChildren(...state.services.map(service => new Option(`${service.name} (${service.waiting})`,service.id)));
+  $('service').replaceChildren(new Option('Selecione o setor',''),...state.services.map(service => new Option(`${service.name} (${service.waiting})`,service.id)));
   if (state.services.some(service => service.id === selected)) $('service').value = selected;
   $('activeDesks').innerHTML = state.active.length ? state.active.map(ticket => `<div class="queue-item"><div><strong>${esc(ticket.desk)}</strong><div>${esc(ticket.code)} • ${esc(ticket.serviceName)}</div></div>${badge(ticket.status)}</div>`).join('') : '<div class="empty">Nenhum local ocupado.</div>';
   $('closeDay').hidden = !!state.session.closedAt;
@@ -320,6 +320,6 @@ if (pin) {
   refresh();
 } else {
   showLogin();
-  getSetupStatus().then(result => { if (!result.configured) $('setupAdmin').hidden = false; }).catch(() => {});
+  getSetupStatus().then(result => { if (!result.configured) $('setupAdmin').hidden = false; }).catch(() => { $('setupAdmin').hidden = false; });
 }
 setInterval(refresh,2500);
