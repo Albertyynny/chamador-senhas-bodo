@@ -1,8 +1,8 @@
-import {getState, getHistory, postAction, formatDateTime, escapeHtml as esc, toast, statusLabels, normalizeDesk} from './app.js';
+import {getState, getHistory, getSetupStatus, postAction, formatDateTime, escapeHtml as esc, toast, statusLabels, normalizeDesk} from './app.js';
 import {getPrinterSettings, printTicket} from './printer.js';
 const $ = id => document.getElementById(id);
 let pin = sessionStorage.getItem('panelPin') || '';
-let state = null, busy = false, refreshing = false, history = null, historyRequest = 0, historyLoading = null;
+let state = null, role = null, serviceId = null, busy = false, refreshing = false, history = null, historyRequest = 0, historyLoading = null;
 let editingAppointment = null;
 try { $('desk').value = localStorage.getItem('panelDesk') || ''; } catch {}
 const today = () => new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
@@ -12,6 +12,28 @@ const badge = status => `<span class="chip status-${esc(status)}">${esc(statusLa
 function showLogin() {
   $('login').classList.add('show');
   $('pin').focus();
+}
+function ensureSetupUi() {
+  if ($('setupAdmin')) return;
+  const box = document.createElement('div');
+  box.id = 'setupAdmin'; box.hidden = true;
+  box.innerHTML = '<hr><p><strong>Primeiro acesso da rede</strong></p><p class="small muted">Cadastre o PIN do administrador geral. Ele terá acesso a toda a unidade e poderá cadastrar os PINs dos setores.</p><div class="field"><label for="adminPin">Novo PIN do administrador</label><input id="adminPin" type="password" inputmode="numeric" maxlength="12"></div><button class="btn btn-success btn-block" id="setupAdminBtn" style="margin-top:12px">Cadastrar administrador</button>';
+  $('login').querySelector('.modal-card').append(box);
+  $('setupAdminBtn').onclick = async () => {
+    $('setupAdminBtn').disabled = true;
+    try { await postAction('setup_admin',{pin:$('adminPin').value}); toast('Administrador geral cadastrado. Entre com esse PIN.'); $('adminPin').value = ''; $('setupAdmin').hidden = true; }
+    catch (error) { toast(error.message,true); }
+    finally { $('setupAdminBtn').disabled = false; }
+  };
+}
+function setRoleView() {
+  const isAdmin = role === 'admin';
+  if ($('agenda')) $('agenda').hidden = !isAdmin;
+  if ($('sectorForm')?.closest?.('.card')) $('sectorForm').closest('.card').hidden = !isAdmin;
+  if ($('closeDay')?.closest?.('.card')) $('closeDay').closest('.card').hidden = !isAdmin;
+  if ($('historyRows')?.closest?.('.card')) $('historyRows').closest('.card').hidden = !isAdmin;
+  $('service').disabled = busy || role === 'service';
+  if (!isAdmin && serviceId) $('service').value = serviceId;
 }
 function controls() {
   const ticket = current();
@@ -24,13 +46,13 @@ function controls() {
   $('absent').disabled = locked || ticket?.status !== 'chamada';
   $('finish').disabled = locked || ticket?.status !== 'em_atendimento';
   $('cancelCurrent').disabled = locked || !ticket;
-  $('desk').disabled = busy; $('service').disabled = busy;
+  $('desk').disabled = busy; $('service').disabled = busy || role === 'service';
   for (const id of ['closeDay','openDay','reopenDay']) $(id).disabled = busy || !state;
   for (const id of ['sectorName','sectorPrefix','createSector']) $(id).disabled = busy || !state || !pin;
   for (const id of ['appointmentService','appointmentRoom','appointmentDate','appointmentTime','appointmentDuration','cancelAppointmentEdit']) $(id).disabled = busy || !state || !pin;
   $('appointmentName').disabled = busy || !state || !pin || !!editingAppointment;
   $('saveAppointment').disabled = busy || !state || !pin || noDesk;
-  $('agendaDesk').textContent = noDesk ? 'Informe seu guichê no início do painel para cadastrar pessoas.' : `Guichê responsável pelo cadastro: ${$('desk').value.trim()}`;
+  $('agendaDesk').textContent = noDesk ? 'Informe seu local no início do painel para cadastrar pessoas.' : `Local responsável pelo cadastro: ${$('desk').value.trim()}`;
   document.querySelectorAll('[data-appointment-action]').forEach(button => {
     const isCheckin = button.dataset.appointmentAction === 'appointment_checkin';
     button.disabled = busy || !state || !pin || noDesk || (isCheckin && (!!state.session.closedAt || state.session.date !== state.today));
@@ -39,7 +61,7 @@ function controls() {
 }
 function renderDesk() {
   const ticket = current();
-  $('current').innerHTML = ticket ? `<div class="big-call"><div class="code">${esc(ticket.code)}</div><div class="patient-name">${esc(ticket.patientName)}</div><div class="desk">${esc(ticket.desk)}</div><p>${esc(ticket.serviceName)}</p>${badge(ticket.status)}</div>` : '<div class="empty">Guichê livre. Escolha a fila e chame a próxima senha.</div>';
+  $('current').innerHTML = ticket ? `<div class="big-call"><div class="code">${esc(ticket.code)}</div><div class="patient-name">${esc(ticket.patientName)}</div><div class="desk">${esc(ticket.desk)}</div><p>${esc(ticket.serviceName)}</p>${badge(ticket.status)}</div>` : '<div class="empty">Local livre. Escolha o setor e chame a próxima senha.</div>';
   const waiting = state?.tickets.filter(ticket => ticket.status === 'aguardando' && ticket.serviceId === $('service').value) || [];
   $('queue').innerHTML = waiting.length ? waiting.map(ticket => `<div class="queue-item"><div><strong>${esc(ticket.code)}</strong> ${esc(ticket.patientName)}<div class="small muted">${esc(formatDateTime(ticket.createdAt))}</div></div><button class="btn btn-danger" data-cancel="${esc(ticket.id)}">Cancelar</button></div>`).join('') : '<div class="empty">Nenhuma senha aguardando neste setor.</div>';
   controls();
@@ -54,7 +76,7 @@ function render(next) {
   $('appointmentService').replaceChildren(new Option('Selecione o setor',''),...state.services.map(service => new Option(service.name,service.id)));
   if (state.services.some(service => service.id === appointmentService)) $('appointmentService').value = appointmentService;
   renderAppointments();
-  $('sectorRows').innerHTML = state.services.map(service => `<tr><td>${esc(service.name)}</td><td>${esc(service.prefix)}</td><td>${esc(service.prefix + String(service.nextNumber).padStart(3,'0'))}</td><td>${service.waiting}</td><td><a class="btn btn-secondary" href="retirar.html?setor=${encodeURIComponent(service.id)}" target="_blank" rel="noopener">Gerar senha</a></td></tr>`).join('');
+  $('sectorRows').innerHTML = role === 'admin' ? state.services.map(service => `<tr><td>${esc(service.name)}</td><td>${esc(service.prefix)}</td><td>${esc(service.prefix + String(service.nextNumber).padStart(3,'0'))}</td><td>${service.waiting}</td><td><button class="btn btn-secondary" data-pin-service="${esc(service.id)}">${service.pinConfigured ? 'Alterar PIN' : 'Cadastrar PIN'}</button></td><td><a class="btn btn-secondary" href="retirar.html?setor=${encodeURIComponent(service.id)}" target="_blank" rel="noopener">Gerar senha</a></td></tr>`).join('') : '';
   $('dot').className = 'dot ok'; $('connection').textContent = 'Sistema online';
   $('updated').textContent = 'Atualizado ' + formatDateTime(state.updatedAt);
   $('dayStatus').textContent = `${dateLabel(state.session.date)} • ${state.session.closedAt ? 'Encerrado' : 'Aberto'}`;
@@ -62,7 +84,7 @@ function render(next) {
   const selected = $('service').value;
   $('service').replaceChildren(...state.services.map(service => new Option(`${service.name} (${service.waiting})`,service.id)));
   if (state.services.some(service => service.id === selected)) $('service').value = selected;
-  $('activeDesks').innerHTML = state.active.length ? state.active.map(ticket => `<div class="queue-item"><div><strong>${esc(ticket.desk)}</strong><div>${esc(ticket.code)} • ${esc(ticket.serviceName)}</div></div>${badge(ticket.status)}</div>`).join('') : '<div class="empty">Nenhum guichê ocupado.</div>';
+  $('activeDesks').innerHTML = state.active.length ? state.active.map(ticket => `<div class="queue-item"><div><strong>${esc(ticket.desk)}</strong><div>${esc(ticket.code)} • ${esc(ticket.serviceName)}</div></div>${badge(ticket.status)}</div>`).join('') : '<div class="empty">Nenhum local ocupado.</div>';
   $('closeDay').hidden = !!state.session.closedAt;
   $('openDay').hidden = !state.session.closedAt || state.session.date >= today();
   $('reopenDay').hidden = !state.session.closedAt || state.session.date !== today();
@@ -75,6 +97,7 @@ function render(next) {
   $('historyDay').replaceChildren(...options);
   if (options.some(option => option.value === selectedDay)) $('historyDay').value = selectedDay;
   renderDesk();
+  setRoleView();
   if ($('historyDay').value === state.session.id) {
     historyRequest++; historyLoading = null;
     history = {session:state.session,tickets:state.tickets}; renderHistory();
@@ -103,8 +126,8 @@ async function act(action, payload = {}) {
   finally { busy = false; controls(); await refresh(); }
 }
 function logout() {
-  pin = ''; state = null; history = null; historyRequest++; historyLoading = null;
-  sessionStorage.removeItem('panelPin'); $('pin').value = '';
+  pin = ''; role = null; serviceId = null; state = null; history = null; historyRequest++; historyLoading = null;
+  sessionStorage.removeItem('panelPin'); sessionStorage.removeItem('panelRole'); sessionStorage.removeItem('panelService'); $('pin').value = '';
   for (const id of ['current','queue','activeDesks','historyRows','stats','sectorRows','appointmentRows']) $(id).replaceChildren();
   resetAppointmentForm();
   controls(); showLogin();
@@ -113,8 +136,8 @@ $('loginBtn').onclick = async () => {
   $('loginBtn').disabled = true;
   try {
     const entered = $('pin').value;
-    await postAction('verify_pin',{},entered);
-    pin = entered; sessionStorage.setItem('panelPin',pin); $('pin').value = '';
+  const auth = await postAction('verify_pin',{},entered);
+    pin = entered; role = auth.role; serviceId = auth.serviceId || null; sessionStorage.setItem('panelPin',pin); sessionStorage.setItem('panelRole',role); if (serviceId) sessionStorage.setItem('panelService',serviceId); $('pin').value = '';
     $('login').classList.remove('show'); await refresh();
   } catch (error) { toast(error.message,true); }
   finally { $('loginBtn').disabled = false; }
@@ -125,7 +148,7 @@ $('desk').oninput = () => { renderDesk(); renderAppointments(); };
 $('desk').onchange = () => { try { localStorage.setItem('panelDesk',$('desk').value); } catch {} renderDesk(); };
 $('service').onchange = renderDesk;
 $('next').onclick = () => act('call_next',{serviceId:$('service').value});
-$('callSpecific').onclick = () => act('call_specific',{code:$('specific').value});
+$('callSpecific').onclick = () => act('call_specific',{code:$('specific').value,serviceId:$('service').value});
 for (const action of ['recall','start','finish','absent']) $(action).onclick = () => act(action);
 $('cancelCurrent').onclick = () => { if (current() && confirm(`Cancelar ${current().code} neste guichê? O registro será preservado.`)) act('cancel_ticket'); };
 $('queue').onclick = event => {
@@ -151,6 +174,13 @@ $('sectorForm').onsubmit = async event => {
     $('service').value = result.service.id; renderDesk();
     toast(`Setor ${result.service.name} cadastrado. Use Gerar senha para emitir ${result.service.prefix}001.`);
   }
+};
+$('sectorRows').onclick = async event => {
+  const button = event.target.closest('[data-pin-service]');
+  if (!button) return;
+  const value = prompt('Informe o PIN numérico deste setor (4 a 12 dígitos):');
+  if (value === null) return;
+  await act('set_service_pin',{serviceId:button.dataset.pinService,pin:value});
 };
 
 const appointmentLabels = {agendada:'Agendada',compareceu:'Chegada confirmada',cancelada:'Cancelada',ausente:'Ausente',reagendada:'Reagendada'};
@@ -278,6 +308,18 @@ $('csv').onclick = () => {
   const link = document.createElement('a'); link.href = url; link.download = `historico-${history.session?.date || 'anterior'}.csv`;
   link.click(); setTimeout(() => URL.revokeObjectURL(url),1000);
 };
+document.querySelectorAll('h1,h2,label,p,th,.footer').forEach(element => {
+  if (/guich/i.test(element.textContent)) element.textContent = element.textContent.replace(/guichês/gi,'locais').replace(/guichê/gi,'local');
+});
 controls();
-if (pin) refresh(); else showLogin();
+ensureSetupUi();
+if (pin) {
+  const savedRole = sessionStorage.getItem('panelRole');
+  role = savedRole === 'service' ? 'service' : 'admin';
+  serviceId = role === 'service' ? sessionStorage.getItem('panelService') : null;
+  refresh();
+} else {
+  showLogin();
+  getSetupStatus().then(result => { if (!result.configured) $('setupAdmin').hidden = false; }).catch(() => {});
+}
 setInterval(refresh,2500);

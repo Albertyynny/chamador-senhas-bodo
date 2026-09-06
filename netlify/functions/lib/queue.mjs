@@ -14,10 +14,11 @@ export function defaultState(now = new Date().toISOString()) {
   return {version:2, revision:0, updatedAt:now,
     session:{id:crypto.randomUUID(), date:businessDate(now), openedAt:now, closedAt:null},
     services:definitions.map(([id,name,prefix]) => ({id,name,prefix,nextNumber:1})),
-    tickets:[], calls:[], callSeq:0, archives:[], legacyHistory:[], appointments:[]};
+    tickets:[], calls:[], callSeq:0, archives:[], legacyHistory:[], appointments:[],
+    auth:{adminPin:null,servicePins:{}}};
 }
 export function migrateState(old, now = new Date().toISOString()) {
-  if (old.version === 2) { old.appointments ||= []; return old; }
+  if (old.version === 2) { old.appointments ||= []; old.auth ||= {adminPin:null,servicePins:{}}; old.auth.servicePins ||= {}; return old; }
   const state = defaultState(now);
   state.session.id = `migrated-${old.updatedAt || 'initial'}`;
   state.updatedAt = old.updatedAt || now;
@@ -51,7 +52,16 @@ export function publicState(state, query = new URLSearchParams()) {
 export function adminState(state, agendaDate = businessDate()) {
   return {...publicState(state), tickets:state.tickets,
     agendaDate, appointments:(state.appointments || []).filter(item => item.date === agendaDate),
-    archives:state.archives.map(({key,...archive}) => archive), hasLegacy:state.legacyHistory.length > 0};
+    archives:state.archives.map(({key,...archive}) => archive), hasLegacy:state.legacyHistory.length > 0,
+    services:state.services.map(service => ({...service,pinConfigured:!!state.auth?.servicePins?.[service.id]}))};
+}
+export function serviceState(state, serviceId) {
+  const service = state.services.find(item => item.id === serviceId);
+  if (!service) throw new Error('Setor não encontrado.');
+  const visibleTickets = state.tickets.filter(ticket => ticket.serviceId === serviceId);
+  return {...publicState(state), services:[{...service,waiting:visibleTickets.filter(ticket => ticket.status === 'aguardando').length}],
+    tickets:visibleTickets, active:activeTickets(state).filter(ticket => ticket.serviceId === serviceId),
+    agendaDate:state.session.date, appointments:[], archives:[], hasLegacy:false};
 }
 function change(ticket, status, now, note = '') {
   ticket.status = status;
@@ -80,6 +90,12 @@ function recordCall(state, ticket, now, recalled = false) {
 }
 export function applyAction(state, body, now = new Date().toISOString()) {
   const action = body.action;
+  const auth = body.auth;
+  const isAdmin = !auth || auth.role === 'admin';
+  const serviceAllowed = serviceId => !auth || isAdmin || auth.serviceId === serviceId;
+  if (auth && !isAdmin && ['create_service','open_day','reopen_day','close_day','create_appointment','reschedule_appointment','cancel_appointment','appointment_absent','appointment_checkin'].includes(action)) {
+    throw new Error('Somente o administrador geral tem acesso a esta função.');
+  }
   if (['create_appointment','reschedule_appointment','cancel_appointment','appointment_absent','appointment_checkin'].includes(action)) {
     requireSession(state,body);
     return appointmentAction(state,body,now);
@@ -108,6 +124,17 @@ export function applyAction(state, body, now = new Date().toISOString()) {
     state.services.push(service);
     return {service};
   }
+  if (action === 'set_service_pin') {
+    if (auth && !isAdmin) throw new Error('Somente o administrador geral pode cadastrar PINs de setor.');
+    const service = state.services.find(item => item.id === body.serviceId);
+    const pin = String(body.pin || '');
+    if (!service) throw new Error('Setor não encontrado.');
+    if (!/^\d{4,12}$/.test(pin)) throw new Error('O PIN do setor deve ter de 4 a 12 dígitos.');
+    state.auth ||= {adminPin:null,servicePins:{}}; state.auth.servicePins ||= {};
+    if (pin === state.auth.adminPin || Object.entries(state.auth.servicePins).some(([id,value]) => id !== service.id && value === pin)) throw new Error('Este PIN já está em uso.');
+    state.auth.servicePins[service.id] = pin;
+    return {serviceId:service.id};
+  }
   if (action === 'reopen_day') {
     if (!state.session.closedAt || state.session.date !== businessDate(now)) throw new Error('Só é possível reabrir o atendimento encerrado de hoje.');
     state.session.closedAt = null;
@@ -131,12 +158,14 @@ export function applyAction(state, body, now = new Date().toISOString()) {
     return {ticket};
   }
   if (action === 'call_next' || action === 'call_specific') {
+    if (!serviceAllowed(body.serviceId)) throw new Error('Seu acesso está limitado ao setor cadastrado.');
     const desk = cleanText(body.desk,30);
-    if (!desk) throw new Error('Escolha o guichê deste atendimento.');
-    if (activeTickets(state).some(ticket => ticket.deskId === deskKey(desk))) throw new Error('Este guichê já tem uma senha. Conclua ou marque a situação antes de chamar outra.');
+    if (!desk) throw new Error('Informe o local deste atendimento.');
+    if (activeTickets(state).some(ticket => ticket.deskId === deskKey(desk))) throw new Error('Este local já tem uma senha. Conclua ou marque a situação antes de chamar outra.');
     const ticket = state.tickets.find(ticket => ticket.status === 'aguardando' && (action === 'call_next'
       ? ticket.serviceId === body.serviceId : ticket.code === cleanText(body.code).toUpperCase()));
     if (!ticket) throw new Error('Nenhuma senha encontrada na fila selecionada.');
+    if (!serviceAllowed(ticket.serviceId)) throw new Error('Seu acesso está limitado ao setor cadastrado.');
     ticket.desk = desk; ticket.deskId = deskKey(desk);
     change(ticket,'chamada',now);
     return {call:recordCall(state,ticket,now)};
@@ -144,6 +173,7 @@ export function applyAction(state, body, now = new Date().toISOString()) {
   if (action === 'cancel_ticket' || action === 'remove_ticket') {
     const ticket = state.tickets.find(ticket => ticket.id === body.ticketId);
     if (!ticket || !PENDING.includes(ticket.status)) throw new Error('Esta senha não está mais pendente.');
+    if (!serviceAllowed(ticket.serviceId)) throw new Error('Seu acesso está limitado ao setor cadastrado.');
     if (ACTIVE.includes(ticket.status)) targetAtDesk(state, body);
     change(ticket,'cancelada',now,cleanText(body.reason) || 'Cancelada pelo atendente');
     ticket.finishedAt = now;
@@ -152,6 +182,7 @@ export function applyAction(state, body, now = new Date().toISOString()) {
   if (action === 'return_queue') {
     const ticket = state.tickets.find(ticket => ticket.id === body.ticketId);
     if (!ticket || ticket.status !== 'ausente') throw new Error('Só uma senha ausente pode retornar à fila.');
+    if (!serviceAllowed(ticket.serviceId)) throw new Error('Seu acesso está limitado ao setor cadastrado.');
     change(ticket,'aguardando',now,'Retorno à fila');
     delete ticket.finishedAt; delete ticket.startedAt; delete ticket.desk; delete ticket.deskId;
     state.tickets = [...state.tickets.filter(item => item.id !== ticket.id),ticket];
@@ -159,6 +190,7 @@ export function applyAction(state, body, now = new Date().toISOString()) {
   }
   if (!['recall','start','finish','absent'].includes(action)) throw new Error('Ação inválida.');
   const ticket = targetAtDesk(state,body);
+  if (!serviceAllowed(ticket.serviceId)) throw new Error('Seu acesso está limitado ao setor cadastrado.');
   if (action === 'recall') {
     if (ticket.status !== 'chamada') throw new Error('A senha já está em atendimento.');
     ticket.events.push({status:'rechamada',at:now,desk:ticket.desk});

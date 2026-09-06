@@ -1,5 +1,12 @@
 const API = '/api/state';
 
+export async function getSetupStatus() {
+  const res = await fetch(`${API}?setup=1`, {cache:'no-store'});
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Falha ao verificar o cadastro.');
+  return data;
+}
+
 export async function getState(pin = null, cursor = {}) {
   const query = new URLSearchParams(pin ? {...cursor,admin:'1'} : cursor);
   const res = await fetch(`${API}?${query}`, {
