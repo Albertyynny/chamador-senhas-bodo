@@ -2,6 +2,7 @@ import {getState, getHistory, getSetupStatus, postAction, formatDateTime, escape
 import {getPrinterSettings, printTicket} from './printer.js';
 const $ = id => document.getElementById(id);
 let pin = sessionStorage.getItem('panelPin') || '';
+let adminLocked = sessionStorage.getItem('panelAdminLocked') === 'true';
 let state = null, role = null, serviceId = null, busy = false, refreshing = false, history = null, historyRequest = 0, historyLoading = null;
 let editingAppointment = null;
 try { $('desk').value = localStorage.getItem('panelDesk') || ''; } catch {}
@@ -27,13 +28,23 @@ function ensureSetupUi() {
   };
 }
 function setRoleView() {
-  const isAdmin = role === 'admin';
+  const isAdmin = role === 'admin' && !adminLocked;
   if ($('agenda')) $('agenda').hidden = !isAdmin;
   if ($('sectorForm')?.closest?.('.card')) $('sectorForm').closest('.card').hidden = !isAdmin;
   if ($('closeDay')?.closest?.('.card')) $('closeDay').closest('.card').hidden = !isAdmin;
   if ($('historyRows')?.closest?.('.card')) $('historyRows').closest('.card').hidden = !isAdmin;
-  $('service').disabled = busy || role === 'service';
+  $('service').disabled = busy || role === 'service' || adminLocked;
   if (!isAdmin && serviceId) $('service').value = serviceId;
+  
+  if (role === 'admin') {
+      $('lockAdmin').hidden = adminLocked;
+      $('unlockAdmin').hidden = !adminLocked;
+      $('logout').hidden = adminLocked;
+  } else {
+      $('lockAdmin').hidden = true;
+      $('unlockAdmin').hidden = true;
+      $('logout').hidden = false;
+  }
 }
 function controls() {
   const ticket = current();
@@ -46,7 +57,7 @@ function controls() {
   $('absent').disabled = locked || ticket?.status !== 'chamada';
   $('finish').disabled = locked || ticket?.status !== 'em_atendimento';
   $('cancelCurrent').disabled = locked || !ticket;
-  $('desk').disabled = busy; $('service').disabled = busy || role === 'service';
+  $('desk').disabled = busy || adminLocked; $('service').disabled = busy || role === 'service' || adminLocked;
   for (const id of ['closeDay','openDay','reopenDay']) $(id).disabled = busy || !state;
   for (const id of ['sectorName','sectorPrefix','createSector']) $(id).disabled = busy || !state || !pin;
   for (const id of ['appointmentService','appointmentRoom','appointmentDate','appointmentTime','appointmentDuration','cancelAppointmentEdit']) $(id).disabled = busy || !state || !pin;
@@ -126,8 +137,8 @@ async function act(action, payload = {}) {
   finally { busy = false; controls(); await refresh(); }
 }
 function logout() {
-  pin = ''; role = null; serviceId = null; state = null; history = null; historyRequest++; historyLoading = null;
-  sessionStorage.removeItem('panelPin'); sessionStorage.removeItem('panelRole'); sessionStorage.removeItem('panelService'); $('pin').value = '';
+  pin = ''; role = null; serviceId = null; state = null; history = null; historyRequest++; historyLoading = null; adminLocked = false;
+  sessionStorage.removeItem('panelPin'); sessionStorage.removeItem('panelRole'); sessionStorage.removeItem('panelService'); sessionStorage.removeItem('panelAdminLocked'); $('pin').value = '';
   for (const id of ['current','queue','activeDesks','historyRows','stats','sectorRows','appointmentRows']) $(id).replaceChildren();
   resetAppointmentForm();
   controls(); showLogin();
@@ -144,6 +155,17 @@ $('loginBtn').onclick = async () => {
 };
 $('pin').onkeydown = event => { if (event.key === 'Enter') $('loginBtn').click(); };
 $('logout').onclick = logout;
+$('lockAdmin').onclick = () => {
+    if (!$('desk').value || !$('service').value) return toast('Informe o local e o setor antes de travar a tela.', true);
+    adminLocked = true; sessionStorage.setItem('panelAdminLocked', 'true');
+    setRoleView(); controls();
+};
+$('unlockAdmin').onclick = () => {
+    const entered = prompt('Digite o PIN de administrador para destravar:');
+    if (entered === null) return;
+    if (entered === pin) { adminLocked = false; sessionStorage.removeItem('panelAdminLocked'); setRoleView(); controls(); }
+    else toast('PIN incorreto.', true);
+};
 $('desk').oninput = () => { renderDesk(); renderAppointments(); };
 $('desk').onchange = () => { try { localStorage.setItem('panelDesk',$('desk').value); } catch {} renderDesk(); };
 $('service').onchange = renderDesk;

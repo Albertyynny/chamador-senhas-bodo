@@ -14,7 +14,15 @@ function voiceError(error) {
 const announcements = new AnnouncementQueue(async call => {
   displaying = true; showCall(call);
   const code = call.code.replace(/([A-Z])/g,'$1 ').replace(/(\d)/g,'$1 ');
-  const speech = soundOn ? announce(`Atenção. ${call.patientName ? call.patientName + '. ' : ''}Senha ${code}. Dirija-se ao setor ${call.serviceName}, no local ${call.desk}.`) : Promise.resolve({});
+  const serviceLower = call.serviceName.toLowerCase();
+  const deskLower = call.desk.toLowerCase();
+  let locationSpeech = `Dirija-se ao setor ${call.serviceName}, no local ${call.desk}.`;
+  
+  if (serviceLower === deskLower || deskLower.includes(serviceLower) || serviceLower.includes(deskLower)) {
+      locationSpeech = `Dirija-se ao local ${call.desk}.`;
+  }
+
+  const speech = soundOn ? announce(`Atenção. ${call.patientName ? call.patientName + '. ' : ''}Senha ${code}. ${locationSpeech}`) : Promise.resolve({});
   const [result] = await Promise.all([speech,wait(4000)]);
   if (result?.error) voiceError(result.error);
   await wait(600);
