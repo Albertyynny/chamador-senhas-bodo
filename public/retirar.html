@@ -4,6 +4,7 @@
 <body><main class="shell registration-shell">
 <header class="topbar no-print"><div class="brand"><div class="logo">CS</div><div><h1>Cadastro de consulta</h1><p>Centro de Saúde de Bodó/RN</p></div></div><a href="index.html" class="btn btn-secondary">Início</a></header>
 <section id="chooser" class="card no-print registration-card">
+<div class="statusbar"><span id="printerSummary">Configure a impressão deste dispositivo.</span><a class="btn btn-secondary" href="impressora.html">Configurar impressora</a></div>
 <span class="chip">RECEPÇÃO • RETIRADA DE SENHA</span>
 <h2 class="section-title">Seu atendimento começa aqui</h2>
 <p class="muted">Escolha o setor da consulta e, se desejar, informe seu nome. Ao concluir, sua senha será gerada para a fila de atendimento.</p>
@@ -14,10 +15,25 @@
 <button class="btn btn-primary btn-block registration-submit" id="submit" type="submit" disabled>Cadastrar e gerar senha →</button>
 <p class="small muted registration-note">Após gerar sua senha, aguarde a chamada no painel.</p>
 </form></section>
-<section id="result" hidden aria-labelledby="resultTitle"><div class="ticket"><h2 id="resultTitle" class="section-title">Cadastro concluído!</h2><div class="small muted">SUA SENHA</div><div class="code" id="tcode"></div><div class="ticket-name" id="tname" hidden></div><div class="service" id="tservice"></div><div class="time" id="ttime"></div><hr style="border:0;border-top:1px dashed #cbdde9;margin:22px 0"><p class="muted">Aguarde a chamada no painel de atendimento.</p><div class="actions no-print" style="justify-content:center;margin-top:18px"><button class="btn btn-primary" onclick="window.print()">🖨️ Imprimir</button><button class="btn btn-secondary" id="again">Novo cadastro</button></div></div></section>
+<section id="result" hidden aria-labelledby="resultTitle"><div class="ticket"><h2 id="resultTitle" class="section-title">Cadastro concluído!</h2><div class="small muted">SUA SENHA</div><div class="code" id="tcode"></div><div class="ticket-name" id="tname" hidden></div><div class="service" id="tservice"></div><div class="time" id="ttime"></div><hr style="border:0;border-top:1px dashed #cbdde9;margin:22px 0"><p class="muted">Aguarde a chamada no painel de atendimento.</p><div class="actions no-print" style="justify-content:center;margin-top:18px"><button class="btn btn-primary" id="printTicket" type="button">🖨️ Imprimir</button><button class="btn btn-secondary" id="again">Novo cadastro</button></div></div></section>
 <div class="footer no-print">Atendimento por senha • Nome opcional</div></main>
 <script type="module">
 import {getState, postAction, toast} from './app.js';
+import {getPrinterSettings, printTicket} from './printer.js';
+let currentTicket = null;
+const printerSummary = document.getElementById('printerSummary');
+function updatePrinterSummary() {
+  const settings = getPrinterSettings();
+  printerSummary.textContent = !settings.configured ? 'Configure e teste a impressora antes do atendimento.' : `Papel ${settings.width} mm • Impressão ${settings.auto ? 'automática ativada' : 'manual'}`;
+}
+updatePrinterSummary();
+window.addEventListener('pageshow', updatePrinterSummary);
+window.addEventListener('storage', updatePrinterSummary);
+async function printCurrentTicket() {
+  try { await printTicket(currentTicket); }
+  catch (error) { toast('Senha já gerada. ' + error.message + ' Use Imprimir para tentar novamente.', true); }
+}
+document.getElementById('printTicket').onclick = printCurrentTicket;
 const form = document.getElementById('registration');
 const service = document.getElementById('service');
 const patientName = document.getElementById('patientName');
@@ -57,6 +73,7 @@ form.onsubmit = async event => {
   patientName.disabled = true;
   try {
     const {ticket} = await postAction('take', payload);
+    currentTicket = ticket;
     document.getElementById('tcode').textContent = ticket.code;
     const name = document.getElementById('tname');
     name.textContent = ticket.patientName || '';
@@ -69,6 +86,7 @@ form.onsubmit = async event => {
     title.tabIndex = -1;
     title.focus();
     window.scrollTo({top:0, behavior:'smooth'});
+    if (getPrinterSettings().auto) await printCurrentTicket();
   } catch (error) {
     toast(error.message, true);
   } finally {
@@ -80,6 +98,7 @@ form.onsubmit = async event => {
   }
 };
 document.getElementById('again').onclick = () => {
+  currentTicket = null;
   form.reset();
   document.getElementById('result').hidden = true;
   document.getElementById('chooser').hidden = false;

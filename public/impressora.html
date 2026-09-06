@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#176a60"><title>Configurar impressora | Saúde Bodó</title><link rel="stylesheet" href="styles.css"><link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/assets/icon-180.png"></head>
+<body><main class="shell registration-shell">
+<header class="topbar"><div class="brand"><div class="logo">CS</div><div><h1>Impressora térmica</h1><p>Configuração deste dispositivo</p></div></div><a class="btn btn-secondary" href="retirar.html">Voltar ao cadastro</a></header>
+<section class="card"><h2 class="section-title">Prepare a impressão das senhas</h2>
+<p class="muted">Instale a impressora no dispositivo. Na impressão de teste, selecione a impressora térmica, o papel da mesma largura, escala de 100%, margens nenhuma e desative cabeçalhos e rodapés.</p>
+<form id="printerForm">
+<div class="field" style="margin-bottom:20px"><label for="connectionType">Conexão da impressora no Windows</label><select id="connectionType"><option value="usb">Cabo USB</option><option value="network">Rede / Wi-Fi</option><option value="bluetooth">Bluetooth</option></select><p id="connectionHelp" class="small muted"></p></div>
+<div class="form-row"><div class="field"><label for="paperWidth">Largura da bobina</label><select id="paperWidth"><option value="58">58 mm</option><option value="80">80 mm</option></select></div><div class="field"><label for="paperMargin">Margem interna (mm)</label><input id="paperMargin" type="number" min="0" max="8" step="0.5" required></div></div>
+<p><label><input id="autoPrint" type="checkbox"> Abrir impressão automaticamente ao gerar a senha</label></p>
+<p><label><input id="showName" type="checkbox"> Incluir o nome da pessoa no papel, quando informado</label></p>
+<p class="small muted">O navegador solicita a escolha da impressora e a confirmação. Imprimir diretamente, sem essa janela, exige uma configuração adicional no equipamento. Estas preferências ficam salvas somente neste navegador.</p>
+<div class="actions"><button class="btn btn-primary" type="submit">Salvar configuração</button><button class="btn btn-secondary" id="testPrint" type="button">Imprimir teste</button></div>
+<p id="printerStatus" class="small muted" role="status"></p>
+</form></section>
+<section class="card" style="margin-top:20px"><h2 class="section-title">Imprimir direto no Windows</h2>
+<p>Use o Google Chrome instalado e prepare este computador uma vez:</p>
+<ol><li>Instale o driver da térmica e imprima uma página de teste pelo Windows. Configure no driver a bobina de 58 ou 80 mm e o corte automático, se disponível.</li><li>Baixe e abra <strong>Configurar impressão</strong>. Essa janela usa um perfil exclusivo para o atendimento.</li><li>Nessa janela, salve as preferências e marque a impressão automática. Clique em <strong>Imprimir teste</strong>, escolha a térmica, ajuste o papel, a escala e os cabeçalhos. Imprima o teste para salvar a seleção.</li><li>Feche todas as janelas abertas por esses atalhos. Baixe e abra <strong>Iniciar atendimento</strong>. Ao gerar a senha, o Chrome enviará a impressão com a seleção salva.</li></ol>
+<div class="actions"><button id="setupLauncher" class="btn btn-secondary" type="button">Baixar Configurar impressão</button><button id="silentLauncher" class="btn btn-primary" type="button">Baixar Iniciar atendimento</button></div>
+<p id="launcherStatus" class="small muted" role="status"></p>
+<p class="small muted">Os arquivos .cmd abrem o Chrome com um perfil próprio neste computador. As preferências devem ser salvas nele. O site aberto normalmente ou pelo app instalado continua sujeito à confirmação do navegador. Para trocar a impressora, feche o atendimento e abra novamente o atalho de configuração.</p>
+</section>
+<section class="card" style="margin-top:20px"><h2 class="section-title">Modelo do papelzinho</h2><div id="receiptPreview" style="max-width:100%;margin:auto;padding:16px;border:1px dashed #607673;background:white;color:black;text-align:center;overflow-wrap:anywhere"><strong>Centro de Saúde de Bodó/RN</strong><hr><small>SUA SENHA</small><div style="font-size:42px;font-weight:900">A001</div><p id="previewName">Maria da Silva</p><strong>Consultório Médico</strong><p>Data e horário da emissão</p><hr><p>Aguarde a chamada no painel de atendimento.</p></div><p class="small muted">Prévia ilustrativa. Use o teste para conferir a largura e as margens na impressora.</p></section>
+</main><script type="module">
+import {getPrinterSettings, savePrinterSettings, printTicket, windowsLauncher} from './printer.js';
+const form = document.getElementById('printerForm');
+const width = document.getElementById('paperWidth');
+const margin = document.getElementById('paperMargin');
+const auto = document.getElementById('autoPrint');
+const name = document.getElementById('showName');
+const status = document.getElementById('printerStatus');
+const test = document.getElementById('testPrint');
+const connection = document.getElementById('connectionType');
+const settings = getPrinterSettings();
+width.value = settings.width; margin.value = settings.margin; auto.checked = settings.auto; name.checked = settings.showName; connection.value = settings.connection;
+const values = () => ({width:Number(width.value), margin:Number(margin.value), auto:auto.checked, showName:name.checked, connection:connection.value});
+function preview() {
+  document.getElementById('connectionHelp').textContent = {
+    usb:'Conecte o cabo USB e instale o driver do fabricante. Selecione a impressora na janela de impressão de teste.',
+    network:'Conecte a impressora à rede do computador e adicione-a no Windows pelo endereço IP ou pela busca de impressoras. Depois selecione-a no teste.',
+    bluetooth:'Se o modelo permitir impressão Bluetooth no Windows, faça o pareamento e instale o driver do fabricante. A impressora precisa aparecer em Impressoras e scanners para ser usada aqui.'
+  }[connection.value] + ' Esta opção orienta a instalação; a conexão e a escolha da impressora são feitas no Windows e na janela de impressão.';
+  document.getElementById('receiptPreview').style.width = width.value + 'mm';
+  document.getElementById('receiptPreview').style.padding = margin.value + 'mm';
+  document.getElementById('previewName').hidden = !name.checked;
+}
+form.addEventListener('input', () => { preview(); status.textContent = 'Alterações ainda não salvas.'; });
+form.onsubmit = event => {
+  event.preventDefault();
+  try { savePrinterSettings(values()); status.textContent = 'Configuração salva neste navegador. Faça uma impressão de teste antes de iniciar o atendimento.'; }
+  catch { status.textContent = 'Não foi possível salvar. Verifique se o navegador permite armazenamento local.'; }
+};
+test.onclick = async () => {
+  if (!form.reportValidity()) return;
+  test.disabled = true;
+  try {
+    await printTicket({code:'A001', patientName:'Maria da Silva', serviceName:'Consultório Médico', createdAt:new Date().toISOString()}, values(), true);
+    status.textContent = 'Teste solicitado. Confira o papel na impressora. Nenhuma senha foi criada. Salve a configuração para usá-la no cadastro.';
+  } catch { status.textContent = 'Não foi possível abrir a impressão. Confira a impressora e tente novamente.'; }
+  finally { test.disabled = false; }
+};
+preview();
+function downloadLauncher(silent) {
+  const message = document.getElementById('launcherStatus');
+  try {
+    const content = windowsLauncher(location.origin, silent);
+    const url = URL.createObjectURL(new Blob([content], {type:'application/octet-stream'}));
+    const link = document.createElement('a');
+    link.href = url; link.download = silent ? 'Iniciar-atendimento.cmd' : 'Configurar-impressao.cmd';
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    message.textContent = 'Arquivo preparado. Abra-o no Windows seguindo os passos acima.';
+  } catch (error) { message.textContent = error.message; }
+}
+document.getElementById('setupLauncher').onclick = () => downloadLauncher(false);
+document.getElementById('silentLauncher').onclick = () => downloadLauncher(true);
+</script></body></html>
